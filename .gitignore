@@ -47,3 +47,6 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Large output files from MimiGIVE
+*TempNorm_1850to1900_global_temperature_norm.csv
