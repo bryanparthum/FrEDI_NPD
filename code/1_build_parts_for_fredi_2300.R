@@ -74,19 +74,19 @@ rffsp_sample =
 ##########################
 
 ## parallel filter and writing of feather files
-parallel::detectCores()
-n.cores = parallel::detectCores() - 1
-#n.cores <- 1
+n.cores = parallel::detectCores() - 2
 
 ## make cluster
-my.cluster =
+my.cluster = 
   parallel::makeCluster(
     n.cores, 
     type = "PSOCK"
   )
 
 ## register it to be used by %dopar%
-doParallel::registerDoParallel(cl = my.cluster)
+doParallel::registerDoParallel(
+  cl = my.cluster
+)
 
 # ## check if it is registered (optional)
 # foreach::getDoParRegistered()
@@ -233,7 +233,8 @@ temp.relative.baseline =
   ungroup()
 
 ## rescale temp and trim for fredi
-temp %<>% left_join(temp.relative.baseline) %>% 
+temp %<>% 
+  left_join(temp.relative.baseline) %>% 
   mutate(temp_C_global = temp_C_global - base.1986.2005) %>% 
   filter(year %in% seq(2000, 2300, 1)) %>%
   select(-base.1986.2005) %>% 
@@ -252,9 +253,36 @@ foreach(j = jList, .packages=c('tidyverse')) %dopar% {
     write_csv(fredi_input_path %>% file.path('temp_baseline', paste0('temp_baseline_', j, '.csv')))
 }
 
+## stop main cluster from above
+parallel::stopCluster(cl = my.cluster)
+
+## read csv and make parquets if necessary
 ## repeat with each temperature path from the perturbed emissions for each gas
 for (GAS in c('co2', 'ch4', 'n2o')) {
-  for (YEAR in c(2020))
+  for (YEAR in c(2020, 2030, 2040)) {
+
+    if (file.exists(file.path(external_path, 'temperature', paste0('temperature-', toupper(GAS), '-RFF-', YEAR, '-n10000'),
+                              'results', 'model_2', 'TempNorm_1850to1900_global_temperature_norm.csv'))){
+      file.path(external_path, 'temperature', paste0('temperature-', toupper(GAS), '-RFF-', YEAR, '-n10000'),
+                'results', 'model_2', 'TempNorm_1850to1900_global_temperature_norm.csv') %>%
+        read_csv(show_col_types = F) %>% 
+        write_parquet(
+          file.path(external_path, 'temperature', paste0('temperature-', toupper(GAS), '-RFF-', YEAR, '-n10000'),
+                    'results', 'model_2', 'TempNorm_1850to1900_global_temperature_norm.parquet')
+        )
+    }
+  }
+}
+
+## repeat with each temperature path from the perturbed emissions for each gas
+# for (GAS in c('co2', 'ch4', 'n2o')) {
+#   for (YEAR in c(2020, 2030, 2040)) {
+for (GAS in c('n2o')) {
+  for (YEAR in c(2030)) {
+    
+    ## start new cluster inside this loop because it is getting stuck for some reason
+    my.cluster = parallel::makeCluster(n.cores, type = "PSOCK")
+    doParallel::registerDoParallel(cl = my.cluster)
     
     ## perturbed temperature path
     temp =
@@ -266,32 +294,37 @@ for (GAS in c('co2', 'ch4', 'n2o')) {
              temp_C_global = 2, 
              trial         = trialnum) %>% 
       filter(year > 1985)
-  
-  ## rescale temp and trim for fredi
-  temp %<>% 
-    left_join(temp.relative.baseline) %>% 
-    mutate(temp_C_global = temp_C_global - base.1986.2005) %>% 
-    filter(year %in% seq(2000, 2300, 1)) %>%
-    select(-base.1986.2005) %>% 
-    left_join(rffsp_sample) %>% 
-    relocate(trial, rffsp.id, year)
-  
-  ## export as inputs to fredi
-  temp %>% 
-    write_parquet(fredi_input_path %>% 
-                           file.path(paste0('global_mean_surface_temperature_perturbed_', GAS, '_', YEAR, '.parquet')))
-  
-  ## export scenario-specific files to read into fredi
-  foreach(j = jList, .packages=c('tidyverse')) %dopar% {
+    
+    ## rescale temp and trim for fredi
+    temp %<>% 
+      left_join(temp.relative.baseline,
+                by = 'trial') %>% 
+      mutate(temp_C_global = temp_C_global - base.1986.2005) %>% 
+      filter(year %in% seq(2000, 2300, 1)) %>%
+      select(-base.1986.2005) %>% 
+      left_join(rffsp_sample,
+                by = 'trial') %>% 
+      relocate(trial, rffsp.id, year)
+    
+    ## export as inputs to fredi
     temp %>% 
-      filter(trial == j) %>% 
-      select(year, temp_C_global) %>% 
-      write_csv(fredi_input_path %>% 
-                  file.path('temp_perturbed', paste0(GAS, '/temp_perturbed_', GAS, '_', YEAR, '_', j, '.csv')))
+      write_parquet(fredi_input_path %>% 
+                      file.path(paste0('global_mean_surface_temperature_perturbed_', GAS, '_', YEAR, '.parquet')))
+    
+    
+    ## export scenario-specific files to read into fredi
+    foreach(j = jList, .packages=c('tidyverse')) %dopar% {
+      temp %>% 
+        filter(trial == j) %>% 
+        select(year, temp_C_global) %>% 
+        write_csv(fredi_input_path %>% 
+                    file.path('temp_perturbed', paste0(GAS, '/temp_perturbed_', GAS, '_', YEAR, '_', j, '.csv')))
+    }
+    
+    ## stop cluster
+    parallel::stopCluster(cl = my.cluster)
+    
   }
 }
-
-## stop cluster
-parallel::stopCluster(cl = my.cluster)
 
 ## end of script, have a great day!
