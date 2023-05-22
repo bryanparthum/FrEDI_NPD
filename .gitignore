@@ -9,6 +9,14 @@
 # user-specific files
 .Ruserdata
 
+#large output files
+*_constrained_AllTempFunScalars.parquet
+*co2_full_streams_2020_national_detault*
+./output/damages/rffsp/damages_*
+./output/damages/rffsp/CH4/*
+./output/damages/rffsp/N2O/*
+
+
 # example code in package build process
 *-Ex.R
 

@@ -96,6 +96,7 @@ doParallel::registerDoParallel(
 
 ###### Iteration List ######
 jList <- 1:1e4
+#jList <- 9520
 #jList <- 9883
 
 ##########################
